@@ -129,4 +129,14 @@ router.get('/remaining-count', verifyAccessToken, async (req, res) => {
     return res.status(200).json({ remainingCount: user[0].remaining_count });
 });
 
+router.delete('/logout', verifyAccessToken, async (req, res) => {
+    await db.promise().query(`
+        UPDATE user 
+        SET refresh_token = NULL 
+        WHERE id = ?
+    `, [res.locals.id]);
+
+    return res.status(200).json({ message: "로그아웃 성공" });
+});
+
 module.exports = router;
