@@ -39,34 +39,6 @@ const deleteImage = async (imgUrl) => {
     }).promise();
 }
 
-const uploadResult = async (imageUrl) => {
-    const response = await axios({
-        method: 'GET',
-        url: imageUrl,
-        responseType: 'stream'
-    });
-
-    const key = `result/${uuidv4()}`;
-
-    const uploadParams = {
-        Bucket: process.env.AWS_S3_BUCKET,
-        Key: key,
-        Body: response.data,
-        ACL: 'public-read',
-        ContentType: response.headers['content-type']
-    };
-
-    return new Promise((resolve, reject) => {
-        s3.upload(uploadParams, (err, data) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(data.Location);
-            }
-        });
-    });
-};
-
 
 router.post('/', verifyAccessToken, uploadImage.array('image', 10), async(req, res) => {
     try{
@@ -75,20 +47,21 @@ router.post('/', verifyAccessToken, uploadImage.array('image', 10), async(req, r
             imageUrls.push(file.location);
         });
         console.log(imageUrls);
-        console.log(req.body.university);
         console.log(req.body.gender);
-        console.log(req.body.faceType);
+        console.log(req.body.faceShape);
         console.log(req.body.hairStyle);
+        console.log(req.body.faceExpression);
 
-        // const response = await axios.get(`${process.env.WEB_UI_URL}/faceswaplab/version`);
-        // console.log(response.data);
+        const response = await axios.post(`${process.env.WEB_UI_URL}/generate`, {"img_urls": imageUrls, "gender": req.body.gender, "face_shape": req.body.faceShape, "hair_style": req.body.hairStyle, "face_expression": req.body.faceExpression});
+        resultImgs = response.data;
+        console.log(response.data);
 
-        const resultImg = await uploadResult(imageUrls[0]);
-
-        await db.promise().query(`
-            INSERT INTO generate (user_id, img_url) 
-            VALUES (?, ?)
-        `, [res.locals.id, resultImg]);
+        for (let i = 0; i < resultImgs.length; i++) {
+            await db.promise().query(`
+                INSERT INTO generate (user_id, img_url) 
+                VALUES (?, ?)
+            `, [res.locals.id, resultImgs[i]]);
+        }
 
         await db.promise().query(`
             UPDATE user
@@ -100,7 +73,7 @@ router.post('/', verifyAccessToken, uploadImage.array('image', 10), async(req, r
             deleteImage(url);
         });
 
-        return res.status(201).json({ message: "이미지 등록 성공", img: resultImg });
+        return res.status(201).json({ message: "이미지 등록 성공", img: resultImgs });
     } catch (e) {
         console.log(e);
         return res.status(500).json({ message: " 이미지 등록 실패" });
@@ -108,3 +81,9 @@ router.post('/', verifyAccessToken, uploadImage.array('image', 10), async(req, r
 });
 
 module.exports = router;
+
+// ### Parameters from frontend
+// gender = 'girl' # boy
+// face_shape = 'slim' # square / slim / round
+// hair_style = 'long' # girl -> long, short / boy -> open, close
+// face_expression = 'none' # smile, none

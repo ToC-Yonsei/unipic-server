@@ -3,8 +3,13 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const db = require('../db');
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const config = fs.readFileSync('./config/config.json');
+const AppleAuth = require('apple-auth');
 
 const { verifyAccessToken, verifyRefreshToken } = require('../utils');
+
+let auth = new AppleAuth(config, fs.readFileSync('./config/AuthKey.p8').toString(), 'text');
 
 router.post('/login', async (req, res) => {
     const [userResult] = await db.promise().query(`
@@ -50,6 +55,75 @@ router.post('/login', async (req, res) => {
         accessToken: accessToken,
         refreshToken: refreshToken
     });
+});
+
+router.post('/login/apple', async (req, res) => {
+    try {
+        const response = await auth.accessToken(req.body.code);
+        const idToken = jwt.decode(response.id_token);
+
+        const user = {};
+        user.id = idToken.sub;
+
+        if (idToken.email) {
+            user.email = idToken.email;
+        } else {
+            user.email = '';
+        }
+        if (req.body.user) {
+            const { name } = JSON.parse(req.body.user);
+            user.name = name;
+        } else {
+            user.name = '사용자 이름';
+        }
+
+        const [userResult] = await db.promise().query(`
+            SELECT id 
+            FROM user 
+            WHERE apple_id = ?
+        `, [user.id]);
+        let loginUser = userResult[0];
+
+        if (!loginUser) {
+            const id = uuidv4().slice(0, 8);
+            await db.promise().query(`
+                INSERT INTO user (id, apple_id, name, email) 
+                VALUES (?, ?, ?, ?)
+            `, [id, user.id, user.name, user.email]);
+
+            const [newUserResult] = await db.promise().query(`
+                SELECT id 
+                FROM user 
+                WHERE apple_id = ?
+            `, [user.id]);
+            loginUser = newUserResult[0];
+        }
+
+        const accessToken = jwt.sign(
+            { id: loginUser.id },
+            process.env.JWT_SECRET_KEY,
+            { algorithm: 'HS256', expiresIn: '3h' }
+        );
+        const refreshToken = jwt.sign(
+            {},
+            process.env.JWT_SECRET_KEY,
+            { algorithm: 'HS256', expiresIn: '30d' }
+        );
+
+        await db.promise().query(`
+            UPDATE user 
+            SET refresh_token = ? 
+            WHERE id = ?
+        `, [refreshToken, loginUser.id]);
+
+        return res.status(200).json({
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        });
+    } catch (ex) {
+        console.error(ex);
+        res.status(500).send("An error occurred!");
+    }
 });
 
 
