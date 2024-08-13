@@ -52,6 +52,20 @@ router.post('/', verifyAccessToken, uploadImage.array('image', 10), async(req, r
         console.log(req.body.hairStyle);
         console.log(req.body.faceExpression);
 
+        const [user] = await db.promise().query(`
+            SELECT remaining_count
+            From user 
+            WHERE id = ?
+        `, [res.locals.id]);
+    
+        if (user.length == 0) {
+            return res.status(404).json({ message: "존재하지 않는 회원입니다." });
+        }
+
+        if (user[0].remaining_count <= 0) {
+            return res.status(403).json({ message: "남은 횟수가 없습니다." });
+        }
+
         const response = await axios.post(`${process.env.WEB_UI_URL}/generate`, {"img_urls": imageUrls, "gender": req.body.gender, "face_shape": req.body.faceShape, "hair_style": req.body.hairStyle, "face_expression": req.body.faceExpression});
         resultImgs = response.data;
         console.log(response.data);
