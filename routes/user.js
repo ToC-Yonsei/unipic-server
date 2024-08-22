@@ -9,6 +9,7 @@ const AppleAuth = require('apple-auth');
 const { importJWK, jwtVerify } = require('jose');
 
 const { verifyAccessToken, verifyRefreshToken } = require('../utils');
+const { verify } = require('crypto');
 
 // router.post('/login', async (req, res) => {
 //     const [userResult] = await db.promise().query(`
@@ -78,7 +79,7 @@ async function verifyAppleToken(token) {
         throw new Error('Apple public key not found for token');
     }
 
-    const publicKey = await importJWK(appleKey, 'ES256');
+    const publicKey = await importJWK(appleKey, 'RS256');
 
     const { payload } = await jwtVerify(token, publicKey, {
         algorithms: ['RS256'],
@@ -167,11 +168,14 @@ router.post('/login/apple', async (req, res) => {
             { algorithm: 'HS256', expiresIn: '30d' }
         );
 
+        const currentTime = Date.now().toString();
+
         await db.promise().query(`
             UPDATE user 
             SET refresh_token = ? 
+            SET last_login = ?
             WHERE id = ?
-        `, [refreshToken, loginUser.id]);
+        `, [refreshToken, currentTime, loginUser.id]);
 
         return res.status(200).json({
             accessToken: accessToken,
@@ -268,6 +272,16 @@ router.delete('/logout', verifyAccessToken, async (req, res) => {
     `, [res.locals.id]);
 
     return res.status(200).json({ message: "로그아웃 성공" });
+});
+
+router.delete('/signout', verifyAccessToken, async (req, res) => {
+    const currentTime = Date.now().toString();
+    await db.promise().query(`
+        INSERT INTO signout_user (id, signout_date) 
+        VALUES (?, ?)
+    `, [res.locals.id, currentTime]);
+
+    return res.status(200).json({ message: "회원 탈퇴 성공" });
 });
 
 module.exports = router;

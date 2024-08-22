@@ -46,11 +46,6 @@ router.post('/', verifyAccessToken, uploadImage.array('image', 10), async(req, r
         req.files.forEach((file) => {
             imageUrls.push(file.location);
         });
-        console.log(imageUrls);
-        console.log(req.body.gender);
-        console.log(req.body.faceShape);
-        console.log(req.body.hairStyle);
-        console.log(req.body.faceExpression);
 
         const [user] = await db.promise().query(`
             SELECT remaining_count
@@ -68,7 +63,6 @@ router.post('/', verifyAccessToken, uploadImage.array('image', 10), async(req, r
 
         const response = await axios.post(`${process.env.WEB_UI_URL}/generate`, {"img_urls": imageUrls, "gender": req.body.gender, "face_shape": req.body.faceShape, "hair_style": req.body.hairStyle, "face_expression": req.body.faceExpression});
         resultImgs = response.data;
-        console.log(response.data);
 
         for (let i = 0; i < resultImgs.length; i++) {
             await db.promise().query(`
