@@ -5,8 +5,9 @@ const db = require('../db');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const config = require('../config/config.json');
-const AppleAuth = require('apple-auth');
 const { importJWK, jwtVerify } = require('jose');
+const axios = require('axios');
+const queryString = require('querystring');
 
 const { verifyAccessToken, verifyRefreshToken } = require('../utils');
 const { verify } = require('crypto');
@@ -56,6 +57,47 @@ const { verify } = require('crypto');
 //         refreshToken: refreshToken
 //     });
 // });
+router.post('/login', async (req, res) => {
+    const algorithm = 'ES256';
+    const key_id = config.key_id;
+    const issuer = config.team_id;
+    const expiresIn = 7776000;
+    const audience = 'https://appleid.apple.com';
+    const subject = config.client_id;
+    const authKey = fs.readFileSync('./config/AuthKey.p8', 'utf-8');
+
+    const client_secret = jwt.sign(
+        {}, 
+        authKey, 
+        {
+            algorithm: algorithm,
+            keyid: key_id,
+            issuer: issuer,
+            expiresIn: expiresIn,
+            audience: audience,
+            subject: subject
+        });
+
+    const tokenResponse = await axios.post('https://appleid.apple.com/auth/token', queryString.stringify({
+        client_id: config.client_id,
+        client_secret: client_secret,
+        code: req.body.code,
+        grant_type: 'authorization_code',
+    }), {
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+    });
+
+    const accessToken = tokenResponse.data.access_token;
+    const refreshToken = tokenResponse.data.refresh_token;
+    const idToken = tokenResponse.data.id_token;
+
+    console.log('accessToken:', accessToken);
+    console.log('refreshToken:', refreshToken);
+    console.log('idToken:', idToken);
+});
+
 
 async function getApplePublicKeys() {
     const response = await fetch('https://appleid.apple.com/auth/keys');
