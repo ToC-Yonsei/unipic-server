@@ -93,6 +93,8 @@ router.post('/login', async (req, res) => {
     const idToken = tokenResponse.data.id_token;
 
     const decodedIdToken = jwt.decode(idToken);
+
+    console.log(decodedIdToken);
     
     const user = {};
     user.id = decodedIdToken.sub;
@@ -119,7 +121,7 @@ router.post('/login', async (req, res) => {
         const id = uuidv4().slice(0, 8);
         await db.promise().query(`
             INSERT INTO user (id, apple_id, name, email, apple_refresh_token) 
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
         `, [id, user.id, user.name, user.email, appleRefreshToken]);
 
         const [newUserResult] = await db.promise().query(`
