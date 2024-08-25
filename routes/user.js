@@ -279,7 +279,7 @@ router.delete('/signout', verifyAccessToken, async (req, res) => {
         client_id: config.client_id,
         client_secret: client_secret,
         refresh_token: user[0].apple_refresh_token,
-        grant_type: 'refresh_token',
+        token_type_hint: 'refresh_token',
     }), {
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded'
