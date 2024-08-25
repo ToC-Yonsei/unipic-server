@@ -7,7 +7,7 @@ const fs = require('fs');
 const config = require('../config/config.json');
 const { importJWK, jwtVerify } = require('jose');
 const axios = require('axios');
-const queryString = require('querystring');
+const qs = require('qs');
 
 const { verifyAccessToken, verifyRefreshToken } = require('../utils');
 const { verify } = require('crypto');
@@ -78,7 +78,7 @@ router.post('/login', async (req, res) => {
             subject: subject
         });
 
-    const tokenResponse = await axios.post('https://appleid.apple.com/auth/token', queryString.stringify({
+    const tokenResponse = await axios.post('https://appleid.apple.com/auth/token', qs.stringify({
         client_id: config.client_id,
         client_secret: client_secret,
         code: req.body.code,
@@ -275,16 +275,18 @@ router.delete('/signout', verifyAccessToken, async (req, res) => {
             subject: subject
         });
 
-    await axios.post('https://appleid.apple.com/auth/revoke', queryString.stringify({
-        client_id: config.client_id,
-        client_secret: client_secret,
-        refresh_token: user[0].apple_refresh_token,
-        token_type_hint: 'refresh_token',
-    }), {
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
+    await axios.post('https://appleid.apple.com/auth/revoke', 
+        qs.stringify({
+            client_id: config.client_id,
+            client_secret: client_secret,
+            token: user[0].apple_refresh_token,
+            token_type_hint: 'refresh_token',
+        }), {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
         }
-    });
+    );
 
     const currentTime = Date.now().toString();
     await db.promise().query(`
