@@ -89,146 +89,72 @@ router.post('/login', async (req, res) => {
         }
     });
 
-    const accessToken = tokenResponse.data.access_token;
-    const refreshToken = tokenResponse.data.refresh_token;
+    const appleRefreshToken = tokenResponse.data.refresh_token;
     const idToken = tokenResponse.data.id_token;
 
-    console.log('accessToken:', accessToken);
-    console.log('refreshToken:', refreshToken);
-    console.log('idToken:', idToken);
-});
+    const decodedIdToken = jwt.decode(idToken);
+    
+    const user = {};
+    user.id = decodedIdToken.sub;
 
-
-async function getApplePublicKeys() {
-    const response = await fetch('https://appleid.apple.com/auth/keys');
-    const data = await response.json();
-    return data.keys;
-}
-
-async function verifyAppleToken(token) {
-    const clientId = config.client_id;
-
-    const appleKeys = await getApplePublicKeys();
-    const { header } = jwt.decode(token, { complete: true });
-
-    if (header.alg !== 'RS256') {
-        throw new Error(`Unexpected algorithm ${header.alg}. Expected RS256.`);
+    if (decodedIdToken.email) {
+        user.email = decodedIdToken.email;
+    } else {
+        user.email = '';
+    }
+    if (decodedIdToken.name) {
+        user.name = decodedIdToken.name;
+    } else {
+        user.name = '사용자 이름';
     }
 
-    const appleKey = appleKeys.find(key => key.kid === header.kid && key.alg === header.alg);
+    const [userResult] = await db.promise().query(`
+        SELECT id 
+        FROM user 
+        WHERE apple_id = ?
+    `, [user.id]);
+    let loginUser = userResult[0];
 
-    if (!appleKey) {
-        throw new Error('Apple public key not found for token');
-    }
+    if (!loginUser) {
+        const id = uuidv4().slice(0, 8);
+        await db.promise().query(`
+            INSERT INTO user (id, apple_id, name, email, apple_refresh_token) 
+            VALUES (?, ?, ?, ?)
+        `, [id, user.id, user.name, user.email, appleRefreshToken]);
 
-    const publicKey = await importJWK(appleKey, 'RS256');
-
-    const { payload } = await jwtVerify(token, publicKey, {
-        algorithms: ['RS256'],
-    });
-
-    if (payload.iss !== 'https://appleid.apple.com') {
-        throw new Error('Invalid iss field');
-    }
-
-    if (payload.aud !== clientId) {
-        console.log(payload.aud);
-        console.log(clientId);
-        throw new Error('Invalid aud field');
-    }
-
-    const currentTime = Math.floor(Date.now() / 1000);
-    if (currentTime >= payload.exp) {
-        throw new Error('Token has expired');
-    }
-
-    console.log('Token is valid');
-    console.log('Payload:', payload);
-
-    if (payload.nonce) {
-        const expectedNonce = 'expected_nonce_value';
-        if (payload.nonce !== expectedNonce) {
-            throw new Error('Invalid nonce');
-        }
-        console.log('Nonce is valid');
-    }
-}
-
-router.post('/login/apple', async (req, res) => {
-    try {
-        // const response = await auth.accessToken(req.body.code);
-        // const idToken = jwt.decode(response.id_token);
-        verifyAppleToken(req.body.code);
-        const idToken = jwt.decode(req.body.code);
-        // jwt.verify(req.body.code, fs.readFileSync('./config/AuthKey.p8').toString(), { algorithms: ['ES256'] });
-
-        const user = {};
-        user.id = idToken.sub;
-
-        if (idToken.email) {
-            user.email = idToken.email;
-        } else {
-            user.email = '';
-        }
-        if (req.body.user) {
-            const { name } = JSON.parse(req.body.user);
-            user.name = name;
-        } else {
-            user.name = '사용자 이름';
-        }
-
-        const [userResult] = await db.promise().query(`
+        const [newUserResult] = await db.promise().query(`
             SELECT id 
             FROM user 
             WHERE apple_id = ?
         `, [user.id]);
-        let loginUser = userResult[0];
-
-        if (!loginUser) {
-            const id = uuidv4().slice(0, 8);
-            await db.promise().query(`
-                INSERT INTO user (id, apple_id, name, email) 
-                VALUES (?, ?, ?, ?)
-            `, [id, user.id, user.name, user.email]);
-
-            const [newUserResult] = await db.promise().query(`
-                SELECT id 
-                FROM user 
-                WHERE apple_id = ?
-            `, [user.id]);
-            loginUser = newUserResult[0];
-        }
-
-        const accessToken = jwt.sign(
-            { id: loginUser.id },
-            process.env.JWT_SECRET_KEY,
-            { algorithm: 'HS256', expiresIn: '3h' }
-        );
-        const refreshToken = jwt.sign(
-            {},
-            process.env.JWT_SECRET_KEY,
-            { algorithm: 'HS256', expiresIn: '30d' }
-        );
-
-        const currentTime = Date.now().toString();
-
-        await db.promise().query(`
-            UPDATE user 
-            SET refresh_token = ?, 
-            last_login = ?
-            WHERE id = ?
-        `, [refreshToken, currentTime, loginUser.id]);
-
-        return res.status(200).json({
-            accessToken: accessToken,
-            refreshToken: refreshToken
-        });
-    } catch (ex) {
-        console.error(ex);
-        res.status(500).send("An error occurred!");
+        loginUser = newUserResult[0];
     }
-});
 
+    const accessToken = jwt.sign(
+        { id: loginUser.id },
+        process.env.JWT_SECRET_KEY,
+        { algorithm: 'HS256', expiresIn: '3h' }
+    );
+    const refreshToken = jwt.sign(
+        {},
+        process.env.JWT_SECRET_KEY,
+        { algorithm: 'HS256', expiresIn: '30d' }
+    );
+
+    const currentTime = Date.now().toString();
+
+    await db.promise().query(`
+        UPDATE user 
+        SET refresh_token = ?, 
+        last_login = ?
+        WHERE id = ?
+    `, [refreshToken, currentTime, loginUser.id]);
+
+    return res.status(200).json({
+        accessToken: accessToken,
+        refreshToken: refreshToken
+    });
+});
 
 router.get("/refresh-token", verifyRefreshToken, async (req, res, next) => {
     const [user] = await db.promise().query(`
@@ -317,6 +243,47 @@ router.delete('/logout', verifyAccessToken, async (req, res) => {
 });
 
 router.delete('/signout', verifyAccessToken, async (req, res) => {
+    const [user] = await db.promise().query(`
+        select apple_refresh_token
+        from user
+        where id = ?
+    `, [res.locals.id]);
+
+    if (user.length == 0) {
+        return res.status(404).json({ message: "존재하지 않는 회원입니다." });
+    }
+
+    const algorithm = 'ES256';
+    const key_id = config.key_id;
+    const issuer = config.team_id;
+    const expiresIn = 7776000;
+    const audience = 'https://appleid.apple.com';
+    const subject = config.client_id;
+    const authKey = fs.readFileSync('./config/AuthKey.p8', 'utf-8');
+
+    const client_secret = jwt.sign(
+        {}, 
+        authKey, 
+        {
+            algorithm: algorithm,
+            keyid: key_id,
+            issuer: issuer,
+            expiresIn: expiresIn,
+            audience: audience,
+            subject: subject
+        });
+
+    await axios.post('https://appleid.apple.com/auth/revoke', queryString.stringify({
+        client_id: config.client_id,
+        client_secret: client_secret,
+        refresh_token: user[0].apple_refresh_token,
+        grant_type: 'refresh_token',
+    }), {
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+    });
+
     const currentTime = Date.now().toString();
     await db.promise().query(`
         INSERT INTO signout_user (id, signout_date) 
