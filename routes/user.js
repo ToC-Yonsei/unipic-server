@@ -148,9 +148,10 @@ router.post('/login', async (req, res) => {
     await db.promise().query(`
         UPDATE user 
         SET refresh_token = ?, 
-        last_login = ?
+        last_login = ?,
+        apple_refresh_token = ?
         WHERE id = ?
-    `, [refreshToken, currentTime, loginUser.id]);
+    `, [refreshToken, currentTime, loginUser.id, appleRefreshToken]);
 
     return res.status(200).json({
         accessToken: accessToken,
